@@ -64,7 +64,7 @@ const get_source_html = async (finalUrl, data_page) => {
     const htmlContent = await page.content();
     await browser.close();
 
-    return htmlContent;
+    return { htmlContent, clicked };
 }
 
 
@@ -101,8 +101,12 @@ app.get("/events/allconferencealert", async (req, res) => {
     const baseUrl = `https://www.allconferencealert.com/usa/${month}`;
 
     try {
-        const pageSourceHTML = await get_source_html(baseUrl, page);
-        const events = await get_allconferencealert_events(pageSourceHTML);
+        const { htmlContent, clicked } = await get_source_html(baseUrl, page);
+
+        if (!clicked && page !== 1) {
+            return res.json({ success: false, message: "Automation completed", events: [] });
+        }
+        const events = await get_allconferencealert_events(htmlContent);
 
         res.json({ success: true, message: "Automation completed", events: events });
     } catch (error) {
@@ -150,6 +154,17 @@ app.get("/events/internationalconferencealert", async (req, res) => {
     try {
         const response = await axios.get(baseUrl);
         const { listingTable } = response.data;
+        
+        const $ = cheerio.load(listingTable);
+        const eventRows = $('tr.conf-list.elist');
+
+        if (eventRows.length === 0) {
+            return res.json({
+                success: false,
+                message: "Automation completed",
+                events: []
+            });
+        }
         const events = await get_internationalconferencealert_events(listingTable);
 
         res.json({ success: true, message: "Automation completed", events: events });
