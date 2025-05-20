@@ -1,5 +1,5 @@
 import express from 'express';
-import puppeteer from "puppeteer-extra";
+import puppeteer from "puppeteer-core";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import * as cheerio from 'cheerio';
 import axios from 'axios';
@@ -19,6 +19,7 @@ app.get('/', async (req, res) => {
 
 const get_source_html = async (finalUrl, data_page) => {
     const browser = await puppeteer.launch({
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
         headless: true,
         args: [
             "--no-sandbox",
@@ -176,6 +177,7 @@ app.get("/events/internationalconferencealert", async (req, res) => {
 // International Conference Alert Event
 const get_internationalconferencealert_source_html = async (finalUrl) => {
     const browser = await puppeteer.launch({
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
         headless: true,
         args: [
             "--no-sandbox",
