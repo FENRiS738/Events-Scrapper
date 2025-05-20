@@ -1,5 +1,5 @@
 import express from 'express';
-import puppeteer from "puppeteer-core";
+import puppeteer from "puppeteer-extra";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import * as cheerio from 'cheerio';
 import axios from 'axios';
