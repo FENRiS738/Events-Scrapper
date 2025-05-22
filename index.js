@@ -40,37 +40,46 @@ const get_source_html = async (finalUrl, data_page) => {
     });
 
     await page.goto(finalUrl, { waitUntil: 'networkidle2' });
-    // Wait for any pagination links to load
-    await page.waitForSelector('span.page-numbers, a.page-numbers', { timeout: 10000 });
 
-    // Try to find the pagination element with the desired page number
-    const clicked = await page.evaluate(async (targetPage) => {
-        const paginationElements = Array.from(document.querySelectorAll('a.page-numbers, span.page-numbers'));
+    let clicked = false;
 
-        for (const el of paginationElements) {
-            const pageNum = el.textContent.trim();
-            if (pageNum === targetPage.toString() && el.tagName.toLowerCase() === 'a') {
-                el.click();
-                return true;
+    if (data_page !== 1 && data_page !== '1') {
+        try {
+            await page.waitForSelector('span.page-numbers, a.page-numbers', { timeout: 10000 });
+
+            clicked = await page.evaluate((targetPage) => {
+                const paginationElements = Array.from(document.querySelectorAll('a.page-numbers, span.page-numbers'));
+                for (const el of paginationElements) {
+                    const pageNum = el.textContent.trim();
+                    if (pageNum === targetPage.toString() && el.tagName.toLowerCase() === 'a') {
+                        el.click();
+                        return true;
+                    }
+                }
+                return false;
+            }, data_page);
+
+            if (clicked) {
+                await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }).catch(() => {});
             }
+        } catch (e) {
+            // Fail silently if pagination not found
         }
-        return false;
-    }, data_page);
-
-    if (clicked) {
-        // Wait for navigation to the new page to complete
-        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }).catch(() => { });
     }
+
     const htmlContent = await page.content();
+
+    // Optional for debugging:
+    // fs.writeFileSync('debug.html', htmlContent);
+
     await browser.close();
 
     return { htmlContent, clicked };
-}
+};
 
-
+// Scrapes the event data
 const get_allconferencealert_events = async (pageSourceHTML) => {
     const $ = cheerio.load(pageSourceHTML);
-
     const events = [];
 
     $('tr.data1').each((_, row) => {
@@ -81,20 +90,18 @@ const get_allconferencealert_events = async (pageSourceHTML) => {
 
         events.push({ date, name, location, url });
     });
+
     return events;
 };
 
-
+// Main route for allconferencealert
 app.get("/events/allconferencealert", async (req, res) => {
     const today = new Date();
-
     const futureMonthIndex = (today.getMonth() + 2) % 12;
-
     const monthNames = [
         "january", "february", "march", "april", "may", "june",
         "july", "august", "september", "october", "november", "december"
     ];
-
     const futureMonthName = monthNames[futureMonthIndex];
     const month = req.query.month || futureMonthName;
     const page = req.query.page || 1;
@@ -103,9 +110,11 @@ app.get("/events/allconferencealert", async (req, res) => {
     try {
         const { htmlContent, clicked } = await get_source_html(baseUrl, page);
 
-        if (!clicked && page !== 1) {
+        // Only block if page > 1 AND no click happened
+        if (!clicked && page !== 1 && page !== '1') {
             return res.json({ success: false, message: "Automation completed", events: [] });
         }
+
         const events = await get_allconferencealert_events(htmlContent);
 
         res.json({ success: true, message: "Automation completed", events: events });
@@ -113,6 +122,7 @@ app.get("/events/allconferencealert", async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
 
 // International Conference Alert
 const get_internationalconferencealert_events = async (pageSourceHTML) => {
