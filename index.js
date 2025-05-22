@@ -17,7 +17,8 @@ app.get('/', async (req, res) => {
     })
 });
 
-const get_source_html = async (finalUrl, data_page) => {
+
+const get_allconferencealert_source_html = async (finalUrl, data_page) => {
     const browser = await puppeteer.launch({
         headless: true,
         args: [
@@ -60,24 +61,18 @@ const get_source_html = async (finalUrl, data_page) => {
             }, data_page);
 
             if (clicked) {
-                await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }).catch(() => {});
+                await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }).catch(() => { });
             }
-        } catch (e) {
-            // Fail silently if pagination not found
-        }
+        } catch (e) {}
     }
 
     const htmlContent = await page.content();
-
-    // Optional for debugging:
-    // fs.writeFileSync('debug.html', htmlContent);
 
     await browser.close();
 
     return { htmlContent, clicked };
 };
 
-// Scrapes the event data
 const get_allconferencealert_events = async (pageSourceHTML) => {
     const $ = cheerio.load(pageSourceHTML);
     const events = [];
@@ -94,7 +89,6 @@ const get_allconferencealert_events = async (pageSourceHTML) => {
     return events;
 };
 
-// Main route for allconferencealert
 app.get("/events/allconferencealert", async (req, res) => {
     const today = new Date();
     const futureMonthIndex = (today.getMonth() + 2) % 12;
@@ -108,7 +102,7 @@ app.get("/events/allconferencealert", async (req, res) => {
     const baseUrl = `https://www.allconferencealert.com/usa/${month}`;
 
     try {
-        const { htmlContent, clicked } = await get_source_html(baseUrl, page);
+        const { htmlContent, clicked } = await get_allconferencealert_source_html(baseUrl, page);
 
         // Only block if page > 1 AND no click happened
         if (!clicked && page !== 1 && page !== '1') {
@@ -124,21 +118,84 @@ app.get("/events/allconferencealert", async (req, res) => {
 });
 
 
-// International Conference Alert
-const get_internationalconferencealert_events = async (pageSourceHTML) => {
-    const $ = cheerio.load(pageSourceHTML);
 
+
+
+
+
+const get_internationalconferencealert_source_html = async (finalUrl, data_page) => {
+    const browser = await puppeteer.launch({
+        headless: true,
+        args: [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--disable-features=IsolateOrigins,site-per-process",
+            "--disable-blink-features=AutomationControlled",
+        ],
+    });
+
+    const page = await browser.newPage();
+
+    await page.setUserAgent(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    );
+
+    await page.setExtraHTTPHeaders({
+        'Accept-Language': 'en-US,en;q=0.9',
+    });
+
+    await page.goto(finalUrl, { waitUntil: 'networkidle2' });
+
+    let clicked = false;
+
+    if (data_page !== 1 && data_page !== '1') {
+        try {
+            await page.waitForSelector('ul.pagination li.page-item a.page-link', { timeout: 10000 });
+
+            clicked = await page.evaluate((targetPage) => {
+                const links = Array.from(document.querySelectorAll("ul.pagination li.page-item a.page-link"));
+                for (const link of links) {
+                    if (link.textContent.trim() === targetPage.toString()) {
+                        link.click();
+                        return true;
+                    }
+                }
+                return false;
+            }, data_page);
+
+            if (clicked) {
+                await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }).catch(() => {});
+            }
+        } catch (e) {}
+    }
+
+    const htmlContent = await page.content();
+    await browser.close();
+
+    return { htmlContent, clicked };
+};
+
+const get_internationalconferencealert_events = async (htmlContent) => {
+    const $ = cheerio.load(htmlContent);
     const events = [];
 
     $('tr.conf-list.elist').each((_, row) => {
-        const day = $(row).find('td').eq(0).find('p').clone().children().remove().end().text().trim();
-        const month = $(row).find('td').eq(0).find('span').text().trim();
+        const $row = $(row);
+
+        // Extract date (day and month)
+        const day = $row.find('td').eq(0).find('p').clone().children().remove().end().text().trim();
+        const month = $row.find('td').eq(0).find('span').text().trim();
         const date = `${day} ${month}`;
 
-        const name = $(row).find('td').eq(1).find('a').text().trim();
-        const url = $(row).find('td').eq(1).find('a').attr('href');
+        // Event name and URL
+        const name = $row.find('td').eq(1).find('p.event-name').text().trim();
+        const url = $row.find('td').eq(1).find('a').attr('href');
 
-        const location = $(row).find('td').eq(2).text().replace(/[\n\r]+|[\s]{2,}/g, ' ').trim();
+        // Location
+        const locationText = $row.find('td').eq(2).find('p.c-loc').text();
+        const location = locationText.replace(/\s+/g, ' ').trim();
 
         events.push({ date, name, location, url });
     });
@@ -146,36 +203,26 @@ const get_internationalconferencealert_events = async (pageSourceHTML) => {
     return events;
 };
 
-app.get("/events/internationalconferencealert", async (req, res) => {
+app.get("/events/internationalconferencealerts", async (req, res) => {
     const today = new Date();
-
     const futureMonthIndex = (today.getMonth() + 2) % 12;
-
     const monthNames = [
         "january", "february", "march", "april", "may", "june",
         "july", "august", "september", "october", "november", "december"
     ];
-
     const futureMonthName = monthNames[futureMonthIndex];
     const month = req.query.month || futureMonthName;
     const page = req.query.page || 1;
-    const baseUrl = `https://internationalconferencealerts.com/pagination/searchfresult?country=USA&topic=&subtopic=&month=${month}&page=${page}`;
+    const baseUrl = `https://internationalconferencealerts.com/searchfresult?country=USA&topic=&subtopic=&month=${month}`;
 
     try {
-        const response = await axios.get(baseUrl);
-        const { listingTable } = response.data;
-        
-        const $ = cheerio.load(listingTable);
-        const eventRows = $('tr.conf-list.elist');
+        const { htmlContent, clicked } = await get_internationalconferencealert_source_html(baseUrl, page);
 
-        if (eventRows.length === 0) {
-            return res.json({
-                success: false,
-                message: "Automation completed",
-                events: []
-            });
+        if (!clicked && page !== 1 && page !== '1') {
+            return res.json({ success: false, message: "Automation completed", events: [] });
         }
-        const events = await get_internationalconferencealert_events(listingTable);
+
+        const events = await get_internationalconferencealert_events(htmlContent);
 
         res.json({ success: true, message: "Automation completed", events: events });
     } catch (error) {
@@ -183,8 +230,9 @@ app.get("/events/internationalconferencealert", async (req, res) => {
     }
 });
 
-// International Conference Alert Event
-const get_internationalconferencealert_source_html = async (finalUrl) => {
+
+
+const get_internationalconferencealert_event_source_html = async (finalUrl) => {
     const browser = await puppeteer.launch({
         headless: true,
         args: [
@@ -221,7 +269,7 @@ app.get("/events/internationalconferencealert/:eventId", async (req, res) => {
     const baseUrl = `https://internationalconferencealerts.com/eventdetails.php?id=${eventId}`;
 
     try {
-        const htmlContent = await get_internationalconferencealert_source_html(baseUrl);
+        const htmlContent = await get_internationalconferencealert_event_source_html(baseUrl);
         const $ = cheerio.load(htmlContent);
 
         const link = $("a.outside-click").filter(function () {
